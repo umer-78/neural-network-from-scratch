@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
@@ -37,7 +38,7 @@ def learning_curves(history, path: str | Path) -> Path:
 def confusion(y_true: np.ndarray, y_pred: np.ndarray, path: str | Path, labels=None) -> Path:
     k = int(max(y_true.max(), y_pred.max())) + 1
     matrix = np.zeros((k, k), dtype=int)
-    for t, p in zip(y_true, y_pred):
+    for t, p in zip(y_true, y_pred, strict=True):
         matrix[int(t), int(p)] += 1
     with plt.rc_context(STYLE):
         fig, ax = plt.subplots(figsize=(4.8, 4.2))
@@ -65,7 +66,9 @@ def mistakes(images, y_true, y_pred, path: str | Path, count: int = 10) -> Path 
         return None
     with plt.rc_context(STYLE):
         fig, axes = plt.subplots(2, 5, figsize=(7, 3.2))
-        for ax, idx in zip(axes.ravel(), wrong):
+        # Fewer mistakes than axes is the good case, so this zip stops at the
+        # shorter one on purpose; the spare axes are hidden below.
+        for ax, idx in zip(axes.ravel(), wrong, strict=False):
             ax.imshow(images[idx], cmap="gray_r")
             ax.set_title(f"{y_true[idx]} → {y_pred[idx]}", fontsize=8)
             ax.axis("off")

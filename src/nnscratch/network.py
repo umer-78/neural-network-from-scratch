@@ -107,7 +107,10 @@ class Network:
         params = [p for layer in self.layers for p, _ in layer.params_and_grads()]
         if len(params) != len(weights):
             raise ValueError(f"expected {len(params)} arrays, got {len(weights)}")
-        for param, value in zip(params, weights):
+        # strict: a saved file with a different number of arrays is a corrupted
+        # or mismatched checkpoint, and silently loading half of it is worse
+        # than refusing.
+        for param, value in zip(params, weights, strict=True):
             param[...] = value
 
     def save(self, path: str | Path) -> None:

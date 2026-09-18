@@ -1,7 +1,18 @@
 import numpy as np
 import pytest
 
-from nnscratch import Adam, CrossEntropy, Dense, Dropout, MeanSquaredError, ReLU, SGD, Sigmoid, Softmax, Tanh
+from nnscratch import (
+    SGD,
+    Adam,
+    CrossEntropy,
+    Dense,
+    Dropout,
+    MeanSquaredError,
+    ReLU,
+    Sigmoid,
+    Softmax,
+    Tanh,
+)
 from nnscratch.datasets import digits, moons, one_hot
 from nnscratch.gradcheck import check_gradients, relative_error
 from nnscratch.network import mlp
