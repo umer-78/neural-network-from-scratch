@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nnscratch — Live Neural Network Training Demo</title>
+  <meta name="description" content="Train a tiny neural network from scratch in the browser on XOR or spiral data — watch the loss curve and decision boundary evolve live.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232563eb'/><text x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='monospace'>N</text></svg>">
+  <style>
+    :root {
+      --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef0f4; --border: #dde1e8;
+      --text: #16181d; --muted: #5d6573; --accent: #2563eb; --accent-ink: #ffffff;
+      --good: #15803d; --bad: #b91c1c; --radius: 12px;
+      --shadow: 0 1px 2px rgb(16 24 40 / 0.06), 0 4px 16px rgb(16 24 40 / 0.05);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1116; --surface: #161a21; --surface-2: #1d222b; --border: #2a303b;
+        --text: #e8eaee; --muted: #9aa3b2; --accent: #60a5fa; --accent-ink: #0b1220;
+        --good: #4ade80; --bad: #f87171; --shadow: none; color-scheme: dark;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+    header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    header.top h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+    header.top p { margin: 2px 0 0; color: var(--muted); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); min-width: 0; margin-bottom: 16px; }
+    .card h2 { font-size: 15px; margin: 0 0 12px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+    input, select, button { font: inherit; color: inherit; }
+    input, select { width: 100%; padding: 9px 11px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); outline: none; min-width: 0; }
+    input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button { cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); padding: 9px 14px; border-radius: 9px; font-weight: 600; }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+    .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+    .row > * { flex: 1 1 150px; }
+    .row > button { flex: 0 0 auto; }
+    .muted { color: var(--muted); }
+    .mono { font-family: var(--mono); }
+    footer { margin-top: 32px; color: var(--muted); font-size: 13px; text-align: center; }
+    .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+    .stat { background: var(--surface-2); border-radius: 8px; padding: 8px 12px; min-width: 90px; flex: 1; }
+    .stat .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat .v { font-family: var(--mono); font-size: 18px; font-weight: 700; }
+    .stat .v.good { color: var(--good); }
+    .viz { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 720px) { .viz { grid-template-columns: 1.1fr 1fr; } }
+    canvas { width: 100%; height: auto; display: block; border-radius: 8px; background: var(--surface-2); }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; margin-top: 8px; color: var(--muted); }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+    .arch { font-family: var(--mono); font-size: 13px; background: var(--surface-2); padding: 10px 12px; border-radius: 8px; margin-top: 10px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div>
+        <h1>nnscratch</h1>
+        <p>A feed-forward network from first principles — hand-derived backprop, SGD/Adam, live in your browser. No PyTorch, no autograd.</p>
+      </div>
+      <a href="https://github.com/umer-78/neural-network-from-scratch">Source on GitHub</a>
+    </header>
+
+    <section class="card" aria-labelledby="train-h">
+      <h2 id="train-h">Train live</h2>
+      <p class="muted" style="margin-top:0">Same layer maths as the Python package: Dense + He init, ReLU, softmax cross-entropy whose gradient folds the Jacobian into <code class="mono">p − y</code>, batch-averaged gradients, and an optimiser of your choice.</p>
+      <div class="row" style="margin-bottom:10px">
+        <div>
+          <label for="dataset">Dataset</label>
+          <select id="dataset">
+            <option value="xor" selected>XOR</option>
+            <option value="spiral">two spirals</option>
+            <option value="moons">two moons</option>
+          </select>
+        </div>
+        <div>
+          <label for="hidden">Hidden units <span class="mono" id="hidVal">8</span></label>
+          <input id="hidden" type="range" min="2" max="32" step="2" value="8">
+        </div>
+        <div>
+          <label for="optim">Optimiser</label>
+          <select id="optim">
+            <option value="adam" selected>adam</option>
+            <option value="sgd">sgd + momentum</option>
+          </select>
+        </div>
+        <div>
+          <label for="lr">Learning rate <span class="mono" id="lrVal">0.05</span></label>
+          <input id="lr" type="range" min="0.005" max="0.3" step="0.005" value="0.05">
+        </div>
+        <button class="primary" id="playBtn">Train</button>
+        <button id="resetBtn">Reset</button>
+      </div>
+      <div class="viz">
+        <div>
+          <canvas id="boundary" width="480" height="400" role="img" aria-label="Decision boundary of the neural network"></canvas>
+          <div class="legend">
+            <span><span class="dot" style="background:#2563eb"></span>class 0</span>
+            <span><span class="dot" style="background:#dc2626"></span>class 1</span>
+            <span class="muted">background = predicted class</span>
+          </div>
+        </div>
+        <div>
+          <canvas id="loss" width="400" height="400" role="img" aria-label="Training loss curve"></canvas>
+          <div class="legend"><span class="muted">cross-entropy loss per epoch (log scale)</span></div>
+        </div>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="arch" id="arch"></div>
+    </section>
+
+    <section class="card" aria-labelledby="how-h">
+      <h2 id="how-h">What is implemented</h2>
+      <ul class="muted" style="margin:0; padding-left:1.2em; line-height:1.7">
+        <li><strong>Dense layers</strong> with He/Xavier init; gradients averaged over the batch so the learning rate means the same thing at batch size 8 and 128.</li>
+        <li><strong>ReLU / sigmoid / tanh / softmax</strong> — softmax max-shifted for stability.</li>
+        <li><strong>Cross-entropy after softmax</strong>: <code class="mono">dL/dz = p − y</code> in one step avoids building the full Jacobian.</li>
+        <li><strong>SGD with momentum</strong> and <strong>Adam with bias correction</strong>.</li>
+        <li><strong>Gradient check</strong> in the package compares every analytic gradient to a central finite difference (~1e-8).</li>
+      </ul>
+      <p class="muted" style="margin-bottom:0">XOR is impossible without a hidden layer — if the boundary collapses to a line, something is wrong with backprop.</p>
+    </section>
+
+    <footer>20 tests · Python 3.10–3.12 · NumPy only · Built by <a href="https://github.com/umer-78">Umer Hashmi</a></footer>
+  </div>
+
+  <script>
+    // === RNG / data ===
+    function mulberry32(a) {
+      return function () {
+        let t = (a += 0x6d2b79f5);
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    function gauss(rng) {
+      let u = 0, v = 0;
+      while (u === 0) u = rng();
+      while (v === 0) v = rng();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    function makeData(kind, n = 200, seed = 3) {
+      const rng = mulberry32(seed);
+      const X = [], y = [];
+      if (kind === "xor") {
+        for (let i = 0; i < n; i++) {
+          const x1 = rng() * 2 - 1, x2 = rng() * 2 - 1;
+          X.push([x1, x2]);
+          y.push((x1 * x2 > 0) ? 1 : 0);
+        }
+      } else if (kind === "moons") {
+        for (let i = 0; i < n; i++) {
+          const label = i % 2;
+          const t = Math.PI * (i / n);
+          let x1, x2;
+          if (label === 0) { x1 = Math.cos(t); x2 = Math.sin(t); }
+          else { x1 = 1 - Math.cos(t); x2 = 0.5 - Math.sin(t); }
+          X.push([x1 + gauss(rng) * 0.12, x2 + gauss(rng) * 0.12]);
+          y.push(label);
+        }
+      } else { // spiral
+        for (let i = 0; i < n; i++) {
+          const label = i % 2;
+          const t = 2.5 * Math.PI * (i / n);
+          const r = t * 0.28;
+          const noise = 0.18;
+          X.push([
+            Math.cos(t + label * Math.PI) * r + gauss(rng) * noise,
+            Math.sin(t + label * Math.PI) * r + gauss(rng) * noise,
+          ]);
+          y.push(label);
+        }
+      }
+      // one-hot
+      const Y = y.map((v) => [v, 1 - v]);
+      return { X, y, Y };
+    }
+
+    // === Tiny MLP with hand backprop (ports nnscratch) ===
+    function initNet(nIn, nHidden, nOut, seed = 0) {
+      const rng = mulberry32(seed + 1);
+      const scale1 = Math.sqrt(2 / nIn);
+      const scale2 = Math.sqrt(1 / nHidden);
+      return {
+        nIn, nHidden, nOut,
+        W1: Array.from({ length: nIn }, () => Array.from({ length: nHidden }, () => gauss(rng) * scale1)),
+        b1: new Array(nHidden).fill(0),
+        W2: Array.from({ length: nHidden }, () => Array.from({ length: nOut }, () => gauss(rng) * scale2)),
+        b2: new Array(nOut).fill(0),
+        // adam state
+        m: null, v: null, t: 0,
+      };
+    }
+
+    function forward(net, x, cache) {
+      const z1 = new Array(net.nHidden);
+      const a1 = new Array(net.nHidden);
+      for (let j = 0; j < net.nHidden; j++) {
+        let s = net.b1[j];
+        for (let i = 0; i < net.nIn; i++) s += x[i] * net.W1[i][j];
+        z1[j] = s;
+        a1[j] = Math.max(0, s); // ReLU
+      }
+      const z2 = new Array(net.nOut);
+      for (let k = 0; k < net.nOut; k++) {
+        let s = net.b2[k];
+        for (let j = 0; j < net.nHidden; j++) s += a1[j] * net.W2[j][k];
+        z2[k] = s;
+      }
+      // stable softmax
+      const maxZ = Math.max(...z2);
+      const exp = z2.map((z) => Math.exp(z - maxZ));
+      const sum = exp.reduce((a, b) => a + b, 0);
+      const p = exp.map((e) => e / sum);
+      if (cache) { cache.x = x; cache.a1 = a1; cache.z1 = z1; }
+      return p;
+    }
+
+    function backward(net, p, target, cache) {
+      // dL/dz2 = p - y
+      const dz2 = p.map((v, k) => v - target[k]);
+      const dW2 = Array.from({ length: net.nHidden }, () => new Array(net.nOut).fill(0));
+      const db2 = new Array(net.nOut).fill(0);
+      const da1 = new Array(net.nHidden).fill(0);
+      for (let j = 0; j < net.nHidden; j++) {
+        for (let k = 0; k < net.nOut; k++) {
+          dW2[j][k] += cache.a1[j] * dz2[k];
+          da1[j] += net.W2[j][k] * dz2[k];
+        }
+      }
+      for (let k = 0; k < net.nOut; k++) db2[k] += dz2[k];
+      // ReLU
+      const dz1 = da1.map((v, j) => (cache.z1[j] > 0 ? v : 0));
+      const dW1 = Array.from({ length: net.nIn }, () => new Array(net.nHidden).fill(0));
+      const db1 = new Array(net.nHidden).fill(0);
+      for (let i = 0; i < net.nIn; i++) {
+        for (let j = 0; j < net.nHidden; j++) dW1[i][j] += cache.x[i] * dz1[j];
+      }
+      for (let j = 0; j < net.nHidden; j++) db1[j] += dz1[j];
+      return { dW1, db1, dW2, db2 };
+    }
+
+    function stepAdam(net, grads, lr, n) {
+      if (!net.m) {
+        net.m = { W1: net.W1.map((r) => r.map(() => 0)), b1: net.b1.map(() => 0), W2: net.W2.map((r) => r.map(() => 0)), b2: net.b2.map(() => 0) };
+        net.v = { W1: net.W1.map((r) => r.map(() => 0)), b1: net.b1.map(() => 0), W2: net.W2.map((r) => r.map(() => 0)), b2: net.b2.map(() => 0) };
+      }
+      net.t++;
+      const b1 = 0.9, b2 = 0.999, eps = 1e-8;
+      const c1 = 1 - Math.pow(b1, net.t), c2 = 1 - Math.pow(b2, net.t);
+      const upd = (param, grad, m, v) => {
+        m = b1 * m + (1 - b1) * grad;
+        v = b2 * v + (1 - b2) * grad * grad;
+        const mh = m / c1, vh = v / c2;
+        param -= (lr * mh) / (Math.sqrt(vh) + eps);
+        return [param, m, v];
+      };
+      for (let i = 0; i < net.nIn; i++) for (let j = 0; j < net.nHidden; j++) {
+        const [p, m, v] = upd(net.W1[i][j], grads.dW1[i][j] / n, net.m.W1[i][j], net.v.W1[i][j]);
+        net.W1[i][j] = p; net.m.W1[i][j] = m; net.v.W1[i][j] = v;
+      }
+      for (let j = 0; j < net.nHidden; j++) {
+        const [p, m, v] = upd(net.b1[j], grads.db1[j] / n, net.m.b1[j], net.v.b1[j]);
+        net.b1[j] = p; net.m.b1[j] = m; net.v.b1[j] = v;
+      }
+      for (let j = 0; j < net.nHidden; j++) for (let k = 0; k < net.nOut; k++) {
+        const [p, m, v] = upd(net.W2[j][k], grads.dW2[j][k] / n, net.m.W2[j][k], net.v.W2[j][k]);
+        net.W2[j][k] = p; net.m.W2[j][k] = m; net.v.W2[j][k] = v;
+      }
+      for (let k = 0; k < net.nOut; k++) {
+        const [p, m, v] = upd(net.b2[k], grads.db2[k] / n, net.m.b2[k], net.v.b2[k]);
+        net.b2[k] = p; net.m.b2[k] = m; net.v.b2[k] = v;
+      }
+    }
+
+    function stepSGD(net, grads, lr, n, mom = 0.9) {
+      if (!net.vw) {
+        net.vw = { W1: net.W1.map((r) => r.map(() => 0)), b1: net.b1.map(() => 0), W2: net.W2.map((r) => r.map(() => 0)), b2: net.b2.map(() => 0) };
+      }
+      const upd = (param, grad, v) => {
+        const nv = mom * v - lr * grad;
+        return [param + nv, nv];
+      };
+      for (let i = 0; i < net.nIn; i++) for (let j = 0; j < net.nHidden; j++) {
+        const [p, v] = upd(net.W1[i][j], grads.dW1[i][j] / n, net.vw.W1[i][j]);
+        net.W1[i][j] = p; net.vw.W1[i][j] = v;
+      }
+      for (let j = 0; j < net.nHidden; j++) {
+        const [p, v] = upd(net.b1[j], grads.db1[j] / n, net.vw.b1[j]);
+        net.b1[j] = p; net.vw.b1[j] = v;
+      }
+      for (let j = 0; j < net.nHidden; j++) for (let k = 0; k < net.nOut; k++) {
+        const [p, v] = upd(net.W2[j][k], grads.dW2[j][k] / n, net.vw.W2[j][k]);
+        net.W2[j][k] = p; net.vw.W2[j][k] = v;
+      }
+      for (let k = 0; k < net.nOut; k++) {
+        const [p, v] = upd(net.b2[k], grads.db2[k] / n, net.vw.b2[k]);
+        net.b2[k] = p; net.vw.b2[k] = v;
+      }
+    }
+
+    function trainEpoch(net, data, lr, optim, seed) {
+      const n = data.X.length;
+      const order = Array.from({ length: n }, (_, i) => i);
+      const rng = mulberry32(seed + order.length);
+      for (let i = n - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+      const acc = { dW1: net.W1.map((r) => r.map(() => 0)), db1: net.b1.map(() => 0), dW2: net.W2.map((r) => r.map(() => 0)), db2: net.b2.map(() => 0) };
+      let loss = 0;
+      for (const idx of order) {
+        const cache = {};
+        const p = forward(net, data.X[idx], cache);
+        loss += -Math.log(Math.max(p[data.y[idx]], 1e-12));
+        const g = backward(net, p, data.Y[idx], cache);
+        for (let i = 0; i < net.nIn; i++) for (let j = 0; j < net.nHidden; j++) acc.dW1[i][j] += g.dW1[i][j];
+        for (let j = 0; j < net.nHidden; j++) acc.db1[j] += g.db1[j];
+        for (let j = 0; j < net.nHidden; j++) for (let k = 0; k < net.nOut; k++) acc.dW2[j][k] += g.dW2[j][k];
+        for (let k = 0; k < net.nOut; k++) acc.db2[k] += g.db2[k];
+      }
+      if (optim === "adam") stepAdam(net, acc, lr, n);
+      else stepSGD(net, acc, lr, n);
+      return loss / n;
+    }
+
+    function accuracy(net, data) {
+      let c = 0;
+      for (let i = 0; i < data.X.length; i++) {
+        const p = forward(net, data.X[i], null);
+        if ((p[0] >= p[1] ? 0 : 1) === data.y[i]) c++;
+      }
+      return c / data.X.length;
+    }
+
+    // === UI ===
+    const boundary = document.getElementById("boundary");
+    const bctx = boundary.getContext("2d");
+    const lossC = document.getElementById("loss");
+    const lctx = lossC.getContext("2d");
+    let net = null, data = null, losses = [], epoch = 0, playing = false, timer = null, seed = 0;
+
+    function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+    function reset() {
+      stop();
+      seed = 0;
+      epoch = 0;
+      losses = [];
+      const kind = document.getElementById("dataset").value;
+      const hidden = Number(document.getElementById("hidden").value);
+      data = makeData(kind, 240, 3);
+      net = initNet(2, hidden, 2, seed);
+      document.getElementById("arch").textContent = `2 → ${hidden} (ReLU) → 2 (softmax)  ·  cross-entropy  ·  ${document.getElementById("optim").value}`;
+      render();
+    }
+
+    function tick() {
+      const lr = Number(document.getElementById("lr").value);
+      const optim = document.getElementById("optim").value;
+      // a few epochs per frame for visual speed
+      for (let i = 0; i < 3; i++) {
+        const L = trainEpoch(net, data, lr, optim, epoch + seed);
+        losses.push(L);
+        epoch++;
+      }
+      render();
+      if (epoch >= 400) stop();
+    }
+
+    function play() {
+      if (playing) return;
+      playing = true;
+      document.getElementById("playBtn").textContent = "Pause";
+      timer = setInterval(tick, 50);
+    }
+    function stop() {
+      playing = false;
+      clearInterval(timer);
+      document.getElementById("playBtn").textContent = "Train";
+    }
+
+    function render() {
+      const dpr = window.devicePixelRatio || 1;
+      // boundary
+      const w = boundary.clientWidth || 480, h = 400;
+      boundary.width = w * dpr; boundary.height = h * dpr; boundary.style.height = h + "px";
+      bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      bctx.clearRect(0, 0, w, h);
+      const xs = data.X.map((p) => p[0]), ys = data.X.map((p) => p[1]);
+      const minX = Math.min(...xs) - 0.4, maxX = Math.max(...xs) + 0.4;
+      const minY = Math.min(...ys) - 0.4, maxY = Math.max(...ys) + 0.4;
+      const pad = 10;
+      const res = 4;
+      for (let py = 0; py < h; py += res) {
+        for (let px = 0; px < w; px += res) {
+          const x = minX + ((px - pad) / (w - 2 * pad)) * (maxX - minX);
+          const y = minY + (1 - (py - pad) / (h - 2 * pad)) * (maxY - minY);
+          const p = forward(net, [x, y], null);
+          const cls = p[0] >= p[1] ? 0 : 1;
+          const conf = Math.abs(p[0] - p[1]);
+          bctx.fillStyle = cls
+            ? `rgba(220,38,38,${0.15 + conf * 0.45})`
+            : `rgba(37,99,235,${0.15 + conf * 0.45})`;
+          bctx.fillRect(px, py, res, res);
+        }
+      }
+      data.X.forEach((pt, i) => {
+        const px = pad + ((pt[0] - minX) / (maxX - minX)) * (w - 2 * pad);
+        const py = pad + (1 - (pt[1] - minY) / (maxY - minY)) * (h - 2 * pad);
+        bctx.beginPath();
+        bctx.arc(px, py, 3.2, 0, Math.PI * 2);
+        bctx.fillStyle = data.y[i] ? "#dc2626" : "#2563eb";
+        bctx.fill();
+        bctx.strokeStyle = css("--surface"); bctx.lineWidth = 1; bctx.stroke();
+      });
+
+      // loss
+      const lw = lossC.clientWidth || 400, lh = 400;
+      lossC.width = lw * dpr; lossC.height = lh * dpr; lossC.style.height = lh + "px";
+      lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      lctx.clearRect(0, 0, lw, lh);
+      const lp = { l: 44, r: 10, t: 14, b: 30 };
+      if (losses.length) {
+        const logL = losses.map((v) => Math.log(Math.max(v, 1e-9)));
+        const maxL = Math.max(...logL), minL = Math.min(...logL);
+        const lx = (i) => lp.l + (i / Math.max(losses.length - 1, 1)) * (lw - lp.l - lp.r);
+        const ly = (v) => lp.t + (1 - (v - minL) / (maxL - minL || 1)) * (lh - lp.t - lp.b);
+        const muted = css("--muted"), border = css("--border"), accent = css("--accent");
+        lctx.strokeStyle = border; lctx.fillStyle = muted; lctx.font = "11px ui-monospace, monospace";
+        for (let g = 0; g <= 4; g++) {
+          const v = minL + ((maxL - minL) * g) / 4;
+          const yy = ly(v);
+          lctx.beginPath(); lctx.moveTo(lp.l, yy); lctx.lineTo(lw - lp.r, yy); lctx.stroke();
+          lctx.textAlign = "right"; lctx.fillText(Math.exp(v).toFixed(3), lp.l - 6, yy + 3);
+        }
+        lctx.strokeStyle = accent; lctx.lineWidth = 2; lctx.beginPath();
+        logL.forEach((v, i) => (i ? lctx.lineTo(lx(i), ly(v)) : lctx.moveTo(lx(i), ly(v))));
+        lctx.stroke();
+        if (logL.length) {
+          lctx.fillStyle = accent;
+          lctx.beginPath(); lctx.arc(lx(logL.length - 1), ly(logL[logL.length - 1]), 4, 0, Math.PI * 2); lctx.fill();
+        }
+        lctx.fillStyle = muted; lctx.textAlign = "left";
+        lctx.fillText("epoch 0", lp.l, lh - 8);
+        lctx.textAlign = "right"; lctx.fillText("epoch " + losses.length, lw - lp.r, lh - 8);
+      }
+
+      const acc = accuracy(net, data);
+      const cur = losses.length ? losses[losses.length - 1] : NaN;
+      document.getElementById("stats").innerHTML = `
+        <div class="stat"><div class="k">epoch</div><div class="v">${epoch}</div></div>
+        <div class="stat"><div class="k">loss</div><div class="v">${Number.isFinite(cur) ? cur.toFixed(4) : "—"}</div></div>
+        <div class="stat"><div class="k">train accuracy</div><div class="v ${acc > 0.95 ? "good" : ""}">${(acc * 100).toFixed(1)}%</div></div>
+        <div class="stat"><div class="k">hidden</div><div class="v">${document.getElementById("hidden").value}</div></div>
+        <div class="stat"><div class="k">optimiser</div><div class="v" style="font-size:14px">${document.getElementById("optim").value}</div></div>
+      `;
+      document.getElementById("hidVal").textContent = document.getElementById("hidden").value;
+      document.getElementById("lrVal").textContent = Number(document.getElementById("lr").value).toFixed(3);
+    }
+
+    document.getElementById("playBtn").addEventListener("click", () => (playing ? stop() : play()));
+    document.getElementById("resetBtn").addEventListener("click", reset);
+    ["dataset", "hidden", "optim", "lr"].forEach((id) =>
+      document.getElementById(id).addEventListener("change", reset)
+    );
+    document.getElementById("hidden").addEventListener("input", () => {
+      document.getElementById("hidVal").textContent = document.getElementById("hidden").value;
+      document.getElementById("lrVal").textContent = Number(document.getElementById("lr").value).toFixed(3);
+    });
+    document.getElementById("lr").addEventListener("input", () => {
+      document.getElementById("lrVal").textContent = Number(document.getElementById("lr").value).toFixed(3);
+    });
+    window.addEventListener("resize", render);
+
+    reset();
+    setTimeout(play, 200);
+  </script>
+</body>
+</html>
