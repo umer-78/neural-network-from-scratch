@@ -435,7 +435,7 @@
         }
       }
       // one-hot
-      const Y = y.map((v) => [v, 1 - v]);
+      const Y = y.map((v) => [1 - v, v]); // index 0 = class 0, index 1 = class 1
       return { X, y, Y };
     }
 
