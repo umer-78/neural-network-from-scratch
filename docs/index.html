@@ -310,6 +310,19 @@
 @media (prefers-color-scheme: dark) { :root { --accent: #60a5fa; --accent-hover: #93c5fd; } .btn.primary, button.primary { color: #0a0c10; } }
 @media (prefers-color-scheme: dark) { :root { --muted: #9aa1b3; } }
 </style>
+<!-- motion-kit:head v1 -->
+<style>
+/* The skip link was added to every page without a style, so it sat visible in the top corner. Hidden until focused, as intended. */
+.skip-link { position: absolute; left: 12px; top: -64px; z-index: 1000; padding: 8px 14px; border-radius: 8px; background: var(--accent, #2563eb); color: #fff !important; font-weight: 600; text-decoration: none; transition: top .15s ease; }
+.skip-link:focus { top: 12px; }
+/* The generic button:hover rule is as specific as the primary one and comes first, so it
+   replaced the primary gradient with a flat pale fill (white text on light grey). */
+[data-mk-bg].primary:hover:not(:disabled) { background-image: var(--mk-primary-bg) !important; border-color: transparent; }
+html.mk-pre header.top, html.mk-pre main section, html.mk-pre section.card, html.mk-pre .cards > li { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { html.mk-pre * { opacity: 1 !important; } }
+</style>
+<script>(function(){try{if(!(matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)){var r=document.documentElement;r.classList.add('mk-pre');setTimeout(function(){r.classList.remove('mk-pre')},2200)}}catch(e){}})();</script>
+<!-- /motion-kit:head -->
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -856,5 +869,196 @@
       window.addEventListener('resize', soon);
     })();
   </script>
-  </body>
+  
+<!-- three-3d:start v1 -->
+<style>
+  .nn3d { position: relative; margin-top: 14px; border-radius: 14px; overflow: hidden; background: var(--surface-2, #f3f4f6); height: 320px; touch-action: none; cursor: grab; }
+  .nn3d canvas { display: block; width: 100% !important; height: 100% !important; }
+  .nn3d .hint { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted, #6b7280); pointer-events: none; }
+</style>
+<script type="module">
+  // The network itself in 3D (three.js): input, hidden and output layers as
+  // spheres, every weight as a line — blue for positive, red for negative,
+  // brighter for larger. It reads the live weights, so you can watch training
+  // reshape them. Drag to turn it.
+  import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.min.js';
+  const anchor = document.getElementById('arch');
+  if (anchor) {
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const box = document.createElement('div');
+    box.className = 'nn3d'; box.setAttribute('role', 'img');
+    box.setAttribute('aria-label', 'The neural network in 3D: nodes per layer and every weight, coloured by sign');
+    box.innerHTML = '<span class="hint">Live weights · blue = positive, red = negative · drag to turn</span>';
+    anchor.after(box);
+    let renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); }
+    catch { box.remove(); }
+    if (renderer) {
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      box.prepend(renderer.domElement);
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(40, 2, 0.1, 100);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.2));
+      const key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(3, 5, 6); scene.add(key);
+      const root = new THREE.Group(); scene.add(root);
+      let sig = '', lines = null, nodes = [];
+      const pos = { in: [], hid: [], out: [] };
+      const nodeGeo = new THREE.SphereGeometry(0.16, 24, 16);
+      const mat = { in: new THREE.MeshStandardMaterial({ color: 0x64748b }), hid: new THREE.MeshStandardMaterial({ color: 0x7c3aed }), out: new THREE.MeshStandardMaterial({ color: 0x0ea5e9 }) };
+      function column(n, x) {
+        // hidden units sit on a ring so a 32-wide layer still reads clearly
+        return Array.from({ length: n }, (_, i) => {
+          if (n <= 4) return new THREE.Vector3(x, (i - (n - 1) / 2) * 0.8, 0);
+          const a = (i / n) * Math.PI * 2; return new THREE.Vector3(x, Math.cos(a) * 1.4, Math.sin(a) * 1.4);
+        });
+      }
+      function rebuild(nIn, nHid, nOut) {
+        nodes.forEach((m) => root.remove(m)); nodes = [];
+        if (lines) { root.remove(lines); lines.geometry.dispose(); lines.material.dispose(); }
+        pos.in = column(nIn, -2.4); pos.hid = column(nHid, 0); pos.out = column(nOut, 2.4);
+        for (const [k, arr] of Object.entries(pos)) for (const p of arr) { const s = new THREE.Mesh(nodeGeo, mat[k]); s.position.copy(p); root.add(s); nodes.push(s); }
+        const segs = nIn * nHid + nHid * nOut;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segs * 6), 3));
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(segs * 6), 3));
+        lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }));
+        root.add(lines);
+      }
+      const blue = new THREE.Color(0x2563eb), red = new THREE.Color(0xdc2626), faint = new THREE.Color(0xcbd5e1);
+      function paint(n) {
+        const P = lines.geometry.attributes.position.array, C = lines.geometry.attributes.color.array;
+        let k = 0, max = 1e-9;
+        for (const row of [...n.W1, ...n.W2]) for (const w of row) max = Math.max(max, Math.abs(w));
+        const put = (a, b, w) => {
+          const c = faint.clone().lerp(w >= 0 ? blue : red, Math.min(1, Math.abs(w) / max) ** 0.7);
+          P.set([a.x, a.y, a.z, b.x, b.y, b.z], k * 6); C.set([c.r, c.g, c.b, c.r, c.g, c.b], k * 6); k++;
+        };
+        for (let i = 0; i < n.nIn; i++) for (let j = 0; j < n.nHidden; j++) put(pos.in[i], pos.hid[j], n.W1[i][j]);
+        for (let j = 0; j < n.nHidden; j++) for (let o = 0; o < n.W2[j].length; o++) put(pos.hid[j], pos.out[o], n.W2[j][o]);
+        lines.geometry.attributes.position.needsUpdate = true; lines.geometry.attributes.color.needsUpdate = true;
+      }
+      const orbit = { yaw: -0.5, pitch: 0.25, drag: false, x: 0, y: 0, auto: !reduce };
+      box.addEventListener('pointerdown', (e) => { orbit.drag = true; orbit.auto = false; orbit.x = e.clientX; orbit.y = e.clientY; box.setPointerCapture(e.pointerId); });
+      box.addEventListener('pointermove', (e) => { if (!orbit.drag) return; orbit.yaw += (e.clientX - orbit.x) * 0.01; orbit.pitch = Math.max(-1, Math.min(1, orbit.pitch + (e.clientY - orbit.y) * 0.01)); orbit.x = e.clientX; orbit.y = e.clientY; });
+      box.addEventListener('pointerup', () => { orbit.drag = false; });
+      const fit = () => { const w = box.clientWidth, h = box.clientHeight; if (w && h) { renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); } };
+      new ResizeObserver(fit).observe(box); fit();
+      camera.position.set(0, 0, 5.6);
+      let last = 0, raf = 0, visible = true;
+      new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) raf = requestAnimationFrame(tick); }).observe(box);
+      function tick(t) {
+        raf = 0;
+        if (!visible || document.hidden) return;
+        raf = requestAnimationFrame(tick);
+        // `net` is the page's own network (a global let in the demo script)
+        const n = typeof net !== 'undefined' ? net : null;
+        if (n) {
+          const s = `${n.nIn}-${n.nHidden}-${n.W2[0]?.length}`;
+          if (s !== sig) { sig = s; rebuild(n.nIn, n.nHidden, n.W2[0].length); last = 0; }
+          if (t - last > 120) { paint(n); last = t; }
+        }
+        if (orbit.auto) orbit.yaw += 0.003;
+        root.rotation.set(orbit.pitch, orbit.yaw, 0);
+        renderer.render(scene, camera);
+      }
+      document.addEventListener('visibilitychange', () => { if (!document.hidden && visible && !raf) raf = requestAnimationFrame(tick); });
+      raf = requestAnimationFrame(tick);
+    }
+  }
+</script>
+<!-- three-3d:end -->
+<!-- motion-kit:body v1 -->
+<script src="https://cdn.jsdelivr.net/npm/motion@13.4.4/dist/motion.js" defer crossorigin="anonymous"></script>
+<script>
+/* Motion layer (motion.dev, the library behind Framer Motion), built from the
+   same component ideas as the Magic UI set on 21st.dev: Blur Fade reveals, a
+   Number Ticker for changing figures, a press spring for buttons and an
+   animated list for new results. Progressive: without the library, or with
+   reduced motion, the page is exactly as before. */
+(function () {
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var root = document.documentElement;
+  var EASE = [0.16, 1, 0.3, 1];
+  function keepPrimaryColour() {
+    document.querySelectorAll('button.primary, .btn.primary').forEach(function (b) {
+      var bg = getComputedStyle(b).backgroundImage;
+      if (bg && bg !== 'none') { b.style.setProperty('--mk-primary-bg', bg); b.setAttribute('data-mk-bg', ''); }
+    });
+  }
+  function start() {
+    keepPrimaryColour();
+    var M = window.Motion;
+    if (reduce || !M || !M.animate) { root.classList.remove('mk-pre'); return; }
+    var animate = M.animate, inView = M.inView, stagger = M.stagger;
+    var seen = new WeakSet();
+    function blurFade(el, delay) {
+      // Elements that already have a CSS entrance animation keep it; running
+      // both made them fade in, vanish and fade in again.
+      if (seen.has(el) || (el.className && /\banimate-in\b/.test(el.className)) || getComputedStyle(el).animationName !== 'none') return;
+      seen.add(el);
+      el.style.opacity = '0';
+      animate(el, { opacity: [0, 1], transform: ['translateY(14px)', 'translateY(0px)'], filter: ['blur(6px)', 'blur(0px)'] },
+        { duration: 0.6, delay: delay || 0, ease: EASE }).finished.then(function () { el.style.filter = ''; el.style.transform = ''; });
+    }
+    // 1. Blur Fade: header first, then each card as it scrolls into view.
+    var top = document.querySelectorAll('header.top, header.hero .hero-inner > *, .page-head');
+    top.forEach(function (el, i) { blurFade(el, i * 0.06); });
+    var cards = document.querySelectorAll('main section, section.card, .card, .cards > li, [data-reveal]');
+    var inFirstScreen = [];
+    cards.forEach(function (el) {
+      if (el.closest('header') || el.parentElement && el.parentElement.closest('.card')) return;
+      var r = el.getBoundingClientRect();
+      if (r.top < innerHeight) inFirstScreen.push(el);
+      else if (getComputedStyle(el).animationName === 'none') { el.style.opacity = '0'; inView(el, function () { blurFade(el, 0); }, { amount: 0.12 }); }
+    });
+    inFirstScreen.forEach(function (el, i) { blurFade(el, 0.12 + i * 0.07); });
+    root.classList.remove('mk-pre');
+
+    // 2. Number Ticker: figures in stat tiles count to their new value.
+    var NUM = /-?\d[\d,]*(?:\.\d+)?/;
+    function tick(el, from, to, text) {
+      var m = text.match(NUM), dec = (m[0].split('.')[1] || '').length, pre = text.slice(0, m.index), post = text.slice(m.index + m[0].length);
+      var comma = m[0].indexOf(',') >= 0;
+      el.__mkLock = true;
+      if (el.__mkAnim) el.__mkAnim.stop();
+      el.__mkAnim = animate(from, to, { duration: 0.8, ease: EASE, onUpdate: function (v) {
+        var s = comma ? v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : v.toFixed(dec);
+        el.textContent = pre + s + post;
+      } });
+      el.__mkAnim.finished.then(function () { el.textContent = text; el.__mkLock = false; });
+    }
+    function num(t) { var m = t && t.match(NUM); return m ? parseFloat(m[0].replace(/,/g, '')) : null; }
+    var tickers = document.querySelectorAll('.stat .v, .stats .v, .stat-value, [data-ticker]');
+    tickers.forEach(function (el) {
+      el.__mkLast = num(el.textContent);
+      new MutationObserver(function () {
+        if (el.__mkLock) return;
+        var text = el.textContent, to = num(text), from = el.__mkLast;
+        el.__mkLast = to;
+        if (to === null || from === null || from === to || el.children.length) return;
+        tick(el, from, to, text);
+      }).observe(el, { childList: true, characterData: true, subtree: true });
+    });
+
+    // 3. Press spring on every button.
+    document.addEventListener('pointerdown', function (e) {
+      var b = e.target.closest && e.target.closest('button, .btn, [role="button"]');
+      if (b && !b.disabled) animate(b, { transform: ['scale(1)', 'scale(0.96)', 'scale(1)'] }, { duration: 0.28, ease: EASE });
+    }, { passive: true });
+
+    // 4. Animated list: new results slide in instead of popping.
+    var lists = document.querySelectorAll('main ul, main ol, main tbody, .results, [data-animate-list]');
+    lists.forEach(function (list) {
+      new MutationObserver(function (muts) {
+        var added = [];
+        muts.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType === 1 && added.length < 24) added.push(n); }); });
+        if (added.length) animate(added, { opacity: [0, 1], transform: ['translateY(8px)', 'translateY(0px)'] }, { duration: 0.35, delay: stagger(0.03), ease: EASE });
+      }).observe(list, { childList: true });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();
+</script>
+<!-- /motion-kit:body -->
+</body>
 </html>
