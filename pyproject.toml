@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nnscratch"
+name = "neural-network-from-scratch"
 version = "1.0.0"
-description = "A neural network written from scratch in NumPy: forward pass, backprop, optimisers, and a digit classifier."
+description = "Feed-forward neural network in pure NumPy: hand-derived backprop verified by numerical gradient checking, SGD/Adam, dropout, early stopping, 98.3% on digits."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Umer Hashmi" }]
