@@ -3,6 +3,8 @@
 **Live demo:** https://umer-78.github.io/neural-network-from-scratch/
 
 [![CI](https://github.com/umer-78/neural-network-from-scratch/actions/workflows/ci.yml/badge.svg)](https://github.com/umer-78/neural-network-from-scratch/actions/workflows/ci.yml)
+
+[![Neural Network From Scratch: the live demo](.github/preview.jpg)](https://umer-78.github.io/neural-network-from-scratch/)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![NumPy](https://img.shields.io/badge/NumPy%20only-no%20autograd-013243)
 ![License](https://img.shields.io/badge/license-MIT-green)
